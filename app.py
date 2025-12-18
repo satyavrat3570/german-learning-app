@@ -3,10 +3,10 @@ import pandas as pd
 import speech_recognition as sr
 from gtts import gTTS
 from streamlit_mic_recorder import mic_recorder
+from pydub import AudioSegment  # <--- NEW LIBRARY
 import os
 import tempfile
 import io
-
 # --- CONFIGURATION ---
 CSV_FILE = "german_vocab.csv"
 
@@ -26,22 +26,34 @@ def text_to_speech(text):
         return None
 
 def check_audio_bytes(audio_bytes, target_word):
+    """
+    Converts phone audio (WebM/OGG) to standard WAV for Python.
+    """
     r = sr.Recognizer()
-    # Convert raw bytes to a file-like object
-    audio_file = io.BytesIO(audio_bytes)
     
     try:
-        with sr.AudioFile(audio_file) as source:
+        # 1. Convert any audio format to WAV using pydub
+        audio_segment = AudioSegment.from_file(io.BytesIO(audio_bytes))
+        
+        # 2. Export to a clean WAV buffer
+        wav_io = io.BytesIO()
+        audio_segment.export(wav_io, format="wav")
+        wav_io.seek(0)  # Reset pointer to start of file
+        
+        # 3. Read into SpeechRecognition
+        with sr.AudioFile(wav_io) as source:
+            # Adjust specifically for the recording's noise floor
+            r.adjust_for_ambient_noise(source, duration=0.5)
             audio_data = r.record(source)
+            
+            # 4. Send to Google
             text = r.recognize_google(audio_data, language="de-DE")
             return text
+            
     except sr.UnknownValueError:
         return "???"
-    except sr.RequestError:
-        return "Error"
     except Exception as e:
-        return "???"
-
+        return f"Error: {str(e)}"
 # --- APP LAYOUT ---
 st.set_page_config(page_title="German Mobile", layout="centered")
 
@@ -100,4 +112,5 @@ st.markdown("---")
 if st.button("NEXT WORD ➡️", use_container_width=True):
     st.session_state.index += 1
     st.session_state.feedback = ""
+
     st.rerun()
